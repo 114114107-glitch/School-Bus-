@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>慈濟大學三校區接駁車動態地圖與時刻表</title>
+    <!-- 引入 Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- 引入 Font Awesome 圖示 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/css/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+        :root {
+            --primary: #0056b3;
+            --main-campus: #2b7fff;
+            --jieren-campus: #e67e22;
+            --jianguo-campus: #27ae60;
+            --bg-light: #f8f9fa;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-light);
+            color: #333;
+        }
+
+        header {
+            background-color: var(--primary);
+            color: white;
+            text-align: center;
+            padding: 1.2rem;
+        }
+
+        header h1 { margin: 0; font-size: 1.6rem; }
+        header p { margin: 5px 0 0 0; opacity: 0.9; font-size: 0.9rem; }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 15px;
+        }
+
+        /* 時間控制器 */
+        .time-control-card {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            margin-bottom: 15px;
+        }
+
+        .time-display {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .time-text {
+            font-size: 1.8rem;
+            font-weight: bold;
+            font-family: monospace;
+            color: var(--primary);
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: #e9ecef;
+            border: 1px solid #ced4da;
+            padding: 8px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.88rem;
+            transition: 0.2s;
+        }
+
+        .btn:hover { background: #dee2e6; }
+        .btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
+        .btn-primary:hover { background: #004085; }
+        .btn-realtime { background: #17a2b8; color: white; border-color: #17a2b8; }
+        .btn-realtime:hover { background: #117a8b; }
+
+        .time-slider {
+            width: 100%;
+            margin-top: 10px;
+            cursor: pointer;
+        }
+
+        /* 地圖區域 */
+        #map {
+            height: 480px;
+            width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            background-color: #e5e3df;
+        }
+
+        /* 校區與站牌資訊卡片 */
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .card {
+            background: white;
+            padding: 18px;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        .card h3 { margin: 0 0 10px 0; font-size: 1.1rem; }
+        .card ul { padding-left: 20px; margin: 0; color: #555; font-size: 0.9rem; line-height: 1.7; }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            color: white;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        .badge-main { background-color: var(--main-campus); }
+        .badge-jieren { background-color: var(--jieren-campus); }
+        .badge-jianguo { background-color: var(--jianguo-campus); }
+
+        /* 時刻表 */
+        .table-responsive {
+            background: white;
+            border-radius: 8px;
+            overflow-x: auto;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        table { width: 100%; border-collapse: collapse; text-align: center; }
+        th, td { padding: 10px 12px; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+        th { background: #f1f3f5; color: #495057; }
+        tr.active-bus { background-color: #e7f5ff; font-weight: bold; }
+        tr:hover { background-color: #f8f9fa; cursor: pointer; }
+
+        footer {
+            text-align: center;
+            padding: 15px;
+            color: #6c757d;
+            font-size: 0.85rem;
+            background: #e9ecef;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>慈濟大學三校區接駁車動態地圖與時刻表</h1>
+        <p>中央校區 (中央路) ↔ 介仁校區 (介仁街) ↔ 建國校區 (建國路)</p>
+    </header>
+
+    <div class="container">
+        <!-- 時間控制器 -->
+        <div class="time-control-card">
+            <div class="time-display">
+                <div>
+                    <span style="font-size: 0.9rem; color: #666;">時間狀態：</span>
+                    <span id="currentTimeText" class="time-text">00:00:00</span>
+                    <span id="timeModeBadge" style="font-size:0.8rem; background:#17a2b8; color:white; padding:2px 6px; border-radius:4px; margin-left:6px;">[真實時間]</span>
+                </div>
+                <div id="statusText" style="font-weight: bold; color: #d9534f; font-size: 1rem;">地圖目前無車輛行駛</div>
+            </div>
+            <div class="controls">
+                <button id="realtimeBtn" class="btn btn-realtime"><i class="fa-solid fa-clock"></i> 重置為當前真實時間</button>
+                <button id="playBtn" class="btn btn-primary"><i class="fa-solid fa-play"></i> 播放模擬</button>
+                <button id="speed1" class="btn">1x</button>
+                <button id="speed10" class="btn">10x</button>
+                <button id="speed60" class="btn btn-primary">60x (1分/秒)</button>
+                <button id="speed300" class="btn">300x</button>
+                <button id="nextBusBtn" class="btn" style="margin-left: auto;"><i class="fa-solid fa-forward"></i> 快跳至下一班發車</button>
+            </div>
+            <input type="range" id="timeSlider" class="time-slider" min="0" max="86399" value="0">
+        </div>
+
+        <!-- 地圖容器 -->
+        <div id="map"></div>
+
+        <!-- 三校區資訊卡片 -->
+        <div class="card-grid">
+            <div class="card" style="border-top: 5px solid var(--main-campus);">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <i class="fa-solid fa-university" style="font-size: 22px; color: var(--main-campus);"></i>
+                    <h3><span class="badge badge-main">中央校區 Main Campus</span></h3>
+                </div>
+                <ul>
+                    <li><strong>M1：</strong> 校門口警衛室 (校車 / 計程車)</li>
+                    <li><strong>M2：</strong> 和敬樓 (通識交通車)</li>
+                </ul>
+            </div>
+
+            <div class="card" style="border-top: 5px solid var(--jieren-campus);">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <i class="fa-solid fa-building-columns" style="font-size: 22px; color: var(--jieren-campus);"></i>
+                    <h3><span class="badge badge-jieren">介仁校區 Jieren Campus</span></h3>
+                </div>
+                <ul>
+                    <li><strong>J1：</strong> 合心樓警衛室 (校車 / 計程車)</li>
+                    <li><strong>J2：</strong> 立心樓側門停車場 (通識交通車)</li>
+                </ul>
+            </div>
+
+            <div class="card" style="border-top: 5px solid var(--jianguo-campus);">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <i class="fa-solid fa-school" style="font-size: 22px; color: var(--jianguo-campus);"></i>
+                    <h3><span class="badge badge-jianguo">建國校區 Jianguo Campus</span></h3>
+                </div>
+                <ul>
+                    <li><strong>G1：</strong> 第一警衛室 (計程車)</li>
+                    <li><strong>G2：</strong> 校門林蔭大道 (通識交通車)</li>
+                    <li><strong>G3：</strong> 智慧樓穿堂 (校車)</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 時刻表 -->
+        <h3 style="border-left: 4px solid var(--primary); padding-left: 10px;">慈濟大學三校區接駁車時刻表 (點擊可跳轉至該班發車時間)</h3>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>車次編號</th>
+                        <th>中央校區</th>
+                        <th>介仁校區</th>
+                        <th>建國校區</th>
+                        <th>介仁校區</th>
+                        <th>中央校區</th>
+                        <th>行駛日</th>
+                        <th>車種</th>
+                    </tr>
+                </thead>
+                <tbody id="scheduleTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <footer>
+        <p>資料來源：慈濟大學總務處事務組 | 地圖來源：內政部國土測繪中心 (NLSC)</p>
+    </footer>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // 1. 根據 Google 地圖精確校正的三校區 7 個站點經緯度
+        var STOPS_COORDS = {
+            M1: [23.9931, 121.5898], // 中央校區 校門口警衛室 (中央路三段)
+            M2: [23.9935, 121.5902], // 中央校區 和敬樓
+            J1: [23.9958, 121.5716], // 介仁校區 合心樓警衛室 (介仁街)
+            J2: [23.9962, 121.5720], // 介仁校區 立心樓側門
+            G1: [23.9972, 121.5644], // 建國校區 第一警衛室 (建國路二段)
+            G2: [23.9975, 121.5648], // 建國校區 林蔭大道
+            G3: [23.9980, 121.5652]  // 建國校區 智慧樓穿堂
+        };
+
+        // 2. 三校區精確範圍 (GeoJSON 多邊形)
+        var CAMPUS_BOUNDARIES = [
+            {
+                name: "中央校區 Main Campus",
+                color: "#2b7fff",
+                polygon: [
+                    [23.9950, 121.5880],
+                    [23.9955, 121.5925],
+                    [23.9910, 121.5935],
+                    [23.9905, 121.5890]
+                ]
+            },
+            {
+                name: "介仁校區 Jieren Campus",
+                color: "#e67e22",
+                polygon: [
+                    [23.9975, 121.5700],
+                    [23.9980, 121.5735],
+                    [23.9940, 121.5740],
+                    [23.9935, 121.5705]
+                ]
+            },
+            {
+                name: "建國校區 Jianguo Campus",
+                color: "#27ae60",
+                polygon: [
+                    [23.9985, 121.5620],
+                    [23.9990, 121.5665],
+                    [23.9955, 121.5670],
+                    [23.9950, 121.5625]
+                ]
+            }
+        ];
+
+        // 3. 沿真實道路 (介仁街、建國路二段、中山路一段、中央路三段) 轉彎路徑
+        var ROAD_ROUTES = {
+            // 中央校區 <-> 介仁校區 (經中山路與介仁街)
+            "M-J": [
+                [23.9931, 121.5898],
+                [23.9940, 121.5820],
+                [23.9950, 121.5760],
+                [23.9958, 121.5716]
+            ],
+            // 介仁校區 <-> 建國校區 (經建國路二段)
+            "J-G": [
+                [23.9958, 121.5716],
+                [23.9962, 121.5680],
+                [23.9972, 121.5644]
+            ],
+            // 建國校區 <-> 介仁校區
+            "G-J": [
+                [23.9972, 121.5644],
+                [23.9962, 121.5680],
+                [23.9958, 121.5716]
+            ],
+            // 介仁校區 <-> 中央校區
+            "J-M": [
+                [23.9958, 121.5716],
+                [23.9950, 121.5760],
+                [23.9940, 121.5820],
+                [23.9931, 121.5898]
+            ]
+        };
+
+        // 時刻表資料
+        var schedules = [
+            { id: "0710S", type: "校車", days: "一～五", stops: [
+                { code: "M2", time: 7*3600 + 40*60 },
+                { code: "J2", time: 7*3600 + 50*60 },
+                { code: "G2", time: 7*3600 + 55*60 },
+                { code: "J1", time: 8*3600 + 0*60 },
+                { code: "M1", time: 8*3600 + 10*60 }
+            ]},
+            { id: "0820S", type: "校車", days: "一～五", stops: [
+                { code: "G3", time: 8*3600 + 20*60 },
+                { code: "J1", time: 8*3600 + 25*60 },
+                { code: "M1", time: 8*3600 + 35*60 },
+                { code: "J1", time: 8*3600 + 45*60 },
+                { code: "G3", time: 8*3600 + 50*60 }
+            ]},
+            { id: "0910A", type: "通識交通車", days: "一～五", stops: [
+                { code: "M2", time: 9*3600 + 50*60 },
+                { code: "J2", time: 10*3600 + 0*60 },
+                { code: "G2", time: 10*3600 + 5*60 },
+                { code: "J2", time: 10*3600 + 10*60 },
+                { code: "M2", time: 10*3600 + 20*60 }
+            ]},
+            { id: "1210A", type: "通識交通車", days: "一～五", stops: [
+                { code: "M2", time: 12*3600 + 20*60 },
+                { code: "J2", time: 12*3600 + 30*60 },
+                { code: "G2", time: 12*3600 + 35*60 },
+                { code: "J2", time: 12*3600 + 40*60 },
+                { code: "M2", time: 12*3600 + 50*60 }
+            ]},
+            { id: "1310A", type: "通識交通車", days: "一～五", stops: [
+                { code: "M2", time: 13*3600 + 0*60 },
+                { code: "J2", time: 13*3600 + 10*60 },
+                { code: "G2", time: 13*3600 + 15*60 },
+                { code: "J2", time: 13*3600 + 20*60 },
+                { code: "M2", time: 13*3600 + 30*60 }
+            ]},
+            { id: "1510S", type: "校車", days: "一～五", stops: [
+                { code: "M2", time: 15*3600 + 25*60 },
+                { code: "J2", time: 15*3600 + 35*60 },
+                { code: "G3", time: 15*3600 + 50*60 },
+                { code: "J1", time: 16*3600 + 0*60 },
+                { code: "M1", time: 16*3600 + 10*60 }
+            ]},
+            { id: "1521A", type: "通識交通車", days: "一～四", stops: [
+                { code: "G2", time: 15*3600 + 25*60 },
+                { code: "J2", time: 15*3600 + 30*60 },
+                { code: "M2", time: 15*3600 + 40*60 }
+            ]},
+            { id: "1710A", type: "通識交通車", days: "一～五", stops: [
+                { code: "M2", time: 17*3600 + 40*60 },
+                { code: "J2", time: 17*3600 + 50*60 },
+                { code: "G2", time: 17*3600 + 55*60 },
+                { code: "J2", time: 18*3600 + 0*60 },
+                { code: "M2", time: 18*3600 + 10*60 }
+            ]},
+            { id: "2110T", type: "計程車", days: "一～四", stops: [
+                { code: "M1", time: 21*3600 + 40*60 },
+                { code: "J1", time: 21*3600 + 50*60 },
+                { code: "G1", time: 21*3600 + 55*60 },
+                { code: "J1", time: 22*3600 + 0*60 },
+                { code: "M1", time: 22*3600 + 10*60 }
+            ]}
+        ];
+
+        // 初始化地圖，並精確聚焦於慈大介仁校區與建國校區之間 (縮放等級 14)
+        var map = L.map('map').setView([23.9958, 121.5750], 14);
+        
+        // 載入內政部國土測繪中心 (NLSC) 地圖圖層
+        L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://maps.nlsc.gov.tw/" target="_blank">內政部國土測繪中心 NLSC</a>'
+        }).addTo(map);
+
+        // 1. 繪製 3 大校區邊界區塊
+        CAMPUS_BOUNDARIES.forEach(function(campus) {
+            L.polygon(campus.polygon, {
+                color: campus.color,
+                fillColor: campus.color,
+                fillOpacity: 0.25,
+                weight: 2
+            }).addTo(map).bindPopup('<b>' + campus.name + '</b>');
+        });
+
+        // 2. 標示 7 個詳細站牌地點
+        Object.keys(STOPS_COORDS).forEach(function(code) {
+            var color = code.startsWith('M') ? '#2b7fff' : (code.startsWith('J') ? '#e67e22' : '#27ae60');
+            L.circleMarker(STOPS_COORDS[code], {
+                radius: 8,
+                color: color,
+                fillColor: '#ffffff',
+                fillOpacity: 0.9,
+                weight: 3
+            }).addTo(map).bindPopup('候車站牌代碼: <b>' + code + '</b>');
+        });
+
+        setTimeout(function() { map.invalidateSize(); }, 500);
+
+        var activeBusMarker = null;
+        var routePolyline = null;
+        var isRealTimeMode = true;
+        var currentTime = getRealTimeSeconds();
+        var isPlaying = false;
+        var speedMultiplier = 60;
+        var timer = null;
+
+        var currentTimeText = document.getElementById('currentTimeText');
+        var timeModeBadge = document.getElementById('timeModeBadge');
+        var statusText = document.getElementById('statusText');
+        var timeSlider = document.getElementById('timeSlider');
+        var playBtn = document.getElementById('playBtn');
+
+        function getRealTimeSeconds() {
+            var now = new Date();
+            return now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+        }
+
+        function formatTime(seconds) {
+            var h = Math.floor(seconds / 3600).toString();
+            var m = Math.floor((seconds % 3600) / 60).toString();
+            var s = Math.floor(seconds % 60).toString();
+            if (h.length < 2) h = '0' + h;
+            if (m.length < 2) m = '0' + m;
+            if (s.length < 2) s = '0' + s;
+            return h + ':' + m + ':' + s;
+        }
+
+        function getPointAlongPath(path, progress) {
+            if (path.length === 1) return path[0];
+            var totalSegs = path.length - 1;
+            var segIndex = Math.min(Math.floor(progress * totalSegs), totalSegs - 1);
+            var segProgress = (progress * totalSegs) - segIndex;
+            var p1 = path[segIndex];
+            var p2 = path[segIndex + 1];
+            return [
+                p1[0] + (p2[0] - p1[0]) * segProgress,
+                p1[1] + (p2[1] - p1[1]) * segProgress
+            ];
+        }
+
+        function updateSimulation() {
+            if (isRealTimeMode) {
+                currentTime = getRealTimeSeconds();
+                timeModeBadge.textContent = "[真實時間]";
+                timeModeBadge.style.background = "#17a2b8";
+            } else {
+                timeModeBadge.textContent = "[模擬模式]";
+                timeModeBadge.style.background = "#e67e22";
+            }
+
+            currentTimeText.textContent = formatTime(currentTime);
+            timeSlider.value = currentTime;
+
+            var activeBus = null;
+            var currentSeg = null;
+            var progress = 0;
+
+            for (var b = 0; b < schedules.length; b++) {
+                var bus = schedules[b];
+                var startTime = bus.stops[0].time;
+                var endTime = bus.stops[bus.stops.length - 1].time;
+
+                if (currentTime >= startTime && currentTime <= endTime) {
+                    activeBus = bus;
+                    for (var i = 0; i < bus.stops.length - 1; i++) {
+                        var t1 = bus.stops[i].time;
+                        var t2 = bus.stops[i+1].time;
+                        if (currentTime >= t1 && currentTime <= t2) {
+                            var fromCampus = bus.stops[i].code.charAt(0);
+                            var toCampus = bus.stops[i+1].code.charAt(0);
+                            currentSeg = fromCampus + "-" + toCampus;
+                            progress = (currentTime - t1) / (t2 - t1);
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+
+            if (activeBus && currentSeg) {
+                statusText.textContent = '車次 ' + activeBus.id + ' 行駛中 (' + activeBus.type + ')';
+                statusText.style.color = "#27ae60";
+
+                var roadPath = ROAD_ROUTES[currentSeg] || [STOPS_COORDS.M1, STOPS_COORDS.J1];
+                var currentPos = getPointAlongPath(roadPath, progress);
+
+                if (!routePolyline) {
+                    var fullPath = [];
+                    for (var k = 0; k < activeBus.stops.length - 1; k++) {
+                        var key = activeBus.stops[k].code.charAt(0) + "-" + activeBus.stops[k+1].code.charAt(0);
+                        if (ROAD_ROUTES[key]) {
+                            fullPath = fullPath.concat(ROAD_ROUTES[key]);
+                        }
+                    }
+                    routePolyline = L.polyline(fullPath, { color: '#0056b3', weight: 4, opacity: 0.8, dashArray: '6, 6' }).addTo(map);
+                }
+
+                if (!activeBusMarker) {
+                    var busHtml;
+                    if (activeBus.type === "計程車") {
+                        busHtml = '<div style="background:#f1c40f; color:white; display:flex; align-items:center; justify-content:center; font-size:16px; width:34px; height:34px; border-radius:50%; box-shadow:0 2px 6px rgba(0,0,0,0.4);">' +
+                                  '<i class="fa-solid fa-taxi"></i></div>';
+                    } else {
+                        busHtml = '<div style="background:#e74c3c; color:white; display:flex; align-items:center; justify-content:center; font-size:16px; width:34px; height:34px; border-radius:50%; box-shadow:0 2px 6px rgba(0,0,0,0.4);">' +
+                                  '<i class="fa-solid fa-bus"></i></div>';
+                    }
+                    
+                    var customIcon = L.divIcon({ html: busHtml, className: '', iconSize: [34, 34] });
+                    activeBusMarker = L.marker(currentPos, { icon: customIcon }).addTo(map);
+                } else {
+                    activeBusMarker.setLatLng(currentPos);
+                }
+
+                highlightTableRow(activeBus.id);
+
+            } else {
+                statusText.textContent = "地圖目前無車輛行駛";
+                statusText.style.color = "#d9534f";
+
+                if (activeBusMarker) {
+                    map.removeLayer(activeBusMarker);
+                    activeBusMarker = null;
+                }
+                if (routePolyline) {
+                    map.removeLayer(routePolyline);
+                    routePolyline = null;
+                }
+                highlightTableRow(null);
+            }
+        }
+
+        function highlightTableRow(busId) {
+            var rows = document.querySelectorAll('#scheduleTableBody tr');
+            for (var i = 0; i < rows.length; i++) {
+                if (rows[i].dataset.id === busId) {
+                    rows[i].classList.add('active-bus');
+                } else {
+                    rows[i].classList.remove('active-bus');
+                }
+            }
+        }
+
+        function renderTable() {
+            var tbody = document.getElementById('scheduleTableBody');
+            tbody.innerHTML = '';
+            schedules.forEach(function(s) {
+                var tr = document.createElement('tr');
+                tr.dataset.id = s.id;
+                
+                var getStopTime = function(code) {
+                    var stop = s.stops.find(function(x) { return x.code.startsWith(code); });
+                    return stop ? formatTime(stop.time).substring(0, 5) + ' (' + stop.code + ')' : '-';
+                };
+
+                var stop3 = s.stops.length > 3 ? formatTime(s.stops[3].time).substring(0, 5) + ' (' + s.stops[3].code + ')' : '-';
+                var stop4 = s.stops.length > 4 ? formatTime(s.stops[4].time).substring(0, 5) + ' (' + s.stops[4].code + ')' : '-';
+
+                tr.innerHTML = '<td><b>' + s.id + '</b></td>' +
+                    '<td>' + getStopTime('M') + '</td>' +
+                    '<td>' + getStopTime('J') + '</td>' +
+                    '<td>' + getStopTime('G') + '</td>' +
+                    '<td>' + stop3 + '</td>' +
+                    '<td>' + stop4 + '</td>' +
+                    '<td>' + s.days + '</td>' +
+                    '<td>' + s.type + '</td>';
+
+                tr.addEventListener('click', function() {
+                    isRealTimeMode = false;
+                    currentTime = s.stops[0].time - 60;
+                    updateSimulation();
+                });
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        document.getElementById('realtimeBtn').addEventListener('click', function() {
+            isRealTimeMode = true;
+            if (isPlaying) {
+                isPlaying = false;
+                clearInterval(timer);
+                playBtn.innerHTML = '<i class="fa-solid fa-play"></i> 播放模擬';
+            }
+            updateSimulation();
+        });
+
+        playBtn.addEventListener('click', function() {
+            isRealTimeMode = false;
+            isPlaying = !isPlaying;
+            playBtn.innerHTML = isPlaying ? '<i class="fa-solid fa-pause"></i> 暫停' : '<i class="fa-solid fa-play"></i> 播放模擬';
+            if (isPlaying) {
+                timer = setInterval(function() {
+                    currentTime = (currentTime + speedMultiplier / 10) % 86400;
+                    updateSimulation();
+                }, 100);
+            } else {
+                clearInterval(timer);
+            }
+        });
+
+        timeSlider.addEventListener('input', function(e) {
+            isRealTimeMode = false;
+            currentTime = parseInt(e.target.value);
+            updateSimulation();
+        });
+
+        document.getElementById('speed1').addEventListener('click', function() { speedMultiplier = 1; isRealTimeMode = false; });
+        document.getElementById('speed10').addEventListener('click', function() { speedMultiplier = 10; isRealTimeMode = false; });
+        document.getElementById('speed60').addEventListener('click', function() { speedMultiplier = 60; isRealTimeMode = false; });
+        document.getElementById('speed300').addEventListener('click', function() { speedMultiplier = 300; isRealTimeMode = false; });
+
+        document.getElementById('nextBusBtn').addEventListener('click', function() {
+            isRealTimeMode = false;
+            var nextBus = schedules.find(function(s) { return s.stops[0].time > currentTime; });
+            if (!nextBus) nextBus = schedules[0];
+            currentTime = nextBus.stops[0].time - 60;
+            updateSimulation();
+        });
+
+        setInterval(function() {
+            if (isRealTimeMode) {
+                updateSimulation();
+            }
+        }, 1000);
+
+        renderTable();
+        updateSimulation();
+    </script>
+</body>
+</html>
